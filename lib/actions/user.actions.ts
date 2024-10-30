@@ -4,8 +4,7 @@ import { CreateUserParams, UpdateUserParams } from "@/types"
 import { handleError } from "../utils"
 import { connectToDatabase } from "../database"
 import User from "../database/models/user.model"
-import { Database } from "lucide-react"
-import { clerkMiddleware } from "@clerk/nextjs/server"
+import { revalidatePath } from "next/cache"
 
 // createUser
 export const createUser = async (user: CreateUserParams) => {
@@ -27,13 +26,14 @@ export const updateUser = async (clerkId: String,user: UpdateUserParams ) => {
   try {
     await connectToDatabase();
 
-    const newUser = await User.findByIdAndUpdate(
-      clerkId,
+    const newUser = await User.findOneAndUpdate(
+      {clerkId: clerkId},
       user,
       {new: true}
     )
+    
+    if (!newUser) throw new Error('User update failed');
     return JSON.parse(JSON.stringify(newUser));
-
   } catch (error) {
     handleError(error)
   }
@@ -42,17 +42,29 @@ export const updateUser = async (clerkId: String,user: UpdateUserParams ) => {
 // deleteUser
 export const deleteUser = async (clerkId: String) => {
   try {
-    const deletedUser = await User.findByIdAndDelete(clerkId);
-    return JSON.parse(JSON.stringify(deletedUser));
+
+    await connectToDatabase();
+
+    const userToDelete = await User.findOne({ clerkId })
+
+    if (!userToDelete) {
+      throw new Error('User not found')
+    }
+
+    // Delete user
+    const deletedUser = await User.findByIdAndDelete(userToDelete._id)
+    revalidatePath('/')
+
+    return deletedUser ? JSON.parse(JSON.stringify(deletedUser)) : null
   } catch (error) {
     handleError(error)
   }
 }
 
 // getUser 
-export const getUser = async (id: String) => {
+export const getUser = async (userId: String) => {
   try {
-    const user = await User.findById(id);
+    const user = await User.findById(userId);
     if (!user) {
       throw new Error("User not found!")
     }
